@@ -15,33 +15,51 @@
 package proxy
 
 import (
-	"github.com/fatedier/frp/models/config"
+	"reflect"
+
+	v1 "github.com/fatedier/frp/pkg/config/v1"
 )
 
-type StcpProxy struct {
-	*BaseProxy
-	cfg *config.StcpProxyConf
+func init() {
+	RegisterProxyFactory(reflect.TypeOf(&v1.STCPProxyConfig{}), NewSTCPProxy)
 }
 
-func (pxy *StcpProxy) Run() (remoteAddr string, err error) {
+type STCPProxy struct {
+	*BaseProxy
+	cfg *v1.STCPProxyConfig
+}
+
+func NewSTCPProxy(baseProxy *BaseProxy) Proxy {
+	unwrapped, ok := baseProxy.GetConfigurer().(*v1.STCPProxyConfig)
+	if !ok {
+		return nil
+	}
+	return &STCPProxy{
+		BaseProxy: baseProxy,
+		cfg:       unwrapped,
+	}
+}
+
+func (pxy *STCPProxy) Run() (remoteAddr string, err error) {
 	xl := pxy.xl
-	listener, errRet := pxy.rc.VisitorManager.Listen(pxy.GetName(), pxy.cfg.Sk)
+	allowUsers := pxy.cfg.AllowUsers
+	// if allowUsers is empty, only allow same user from proxy
+	if len(allowUsers) == 0 {
+		allowUsers = []string{pxy.GetUserInfo().User}
+	}
+	listener, errRet := pxy.rc.VisitorManager.Listen(pxy.GetName(), pxy.cfg.Secretkey, allowUsers)
 	if errRet != nil {
 		err = errRet
 		return
 	}
 	pxy.listeners = append(pxy.listeners, listener)
-	xl.Info("stcp proxy custom listen success")
+	xl.Infof("stcp proxy custom listen success")
 
-	pxy.startListenHandler(pxy, HandleUserTcpConnection)
+	pxy.startCommonTCPListenersHandler()
 	return
 }
 
-func (pxy *StcpProxy) GetConf() config.ProxyConf {
-	return pxy.cfg
-}
-
-func (pxy *StcpProxy) Close() {
+func (pxy *STCPProxy) Close() {
 	pxy.BaseProxy.Close()
 	pxy.rc.VisitorManager.CloseListener(pxy.GetName())
 }
